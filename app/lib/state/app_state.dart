@@ -40,9 +40,9 @@ class AppState extends ChangeNotifier {
         projects = await api.fetchProjects();
         secrets = await api.fetchSecrets();
       } else {
-        await Future.delayed(const Duration(milliseconds: 200));
-        projects = _demoProjects();
-        secrets = _demoSecrets();
+        projects = [];
+        secrets = [];
+        error = 'Backend غير متصل. تأكد من إضافة API_BASE_URL.';
       }
     } catch (e) {
       error = e.toString();
@@ -53,22 +53,19 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> createProject(String name) async {
+    if (!api.isConfigured) {
+      error = 'لا يمكن إنشاء مشروع بدون الاتصال بالـ Backend.';
+      notifyListeners();
+      return;
+    }
+
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      if (api.isConfigured) {
-        final project = await api.createProject(name);
-        projects.insert(0, project);
-      } else {
-        final project = Project(
-          id: _newId(),
-          name: name,
-          createdAt: DateTime.now(),
-        );
-        projects.insert(0, project);
-      }
+      final project = await api.createProject(name);
+      projects.insert(0, project);
     } catch (e) {
       error = e.toString();
     }
@@ -83,35 +80,21 @@ class AppState extends ChangeNotifier {
       return;
     }
 
+    if (!api.isConfigured) {
+      _messages[projectId] = [];
+      notifyListeners();
+      return;
+    }
+
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      if (api.isConfigured) {
-        _messages[projectId] = await api.fetchMessages(projectId);
-      } else {
-        _messages[projectId] = [
-          ChatMessage(
-            id: _newId(),
-            projectId: projectId,
-            role: 'assistant',
-            content:
-                'هذا وضع العرض التجريبي. اربط التطبيق بـ Backend حتى يستطيع تنفيذ أوامر GitHub وAWS وFirebase فعليًا.',
-            createdAt: DateTime.now(),
-          ),
-        ];
-      }
+      _messages[projectId] = await api.fetchMessages(projectId);
     } catch (e) {
-      _messages[projectId] = [
-        ChatMessage(
-          id: _newId(),
-          projectId: projectId,
-          role: 'system',
-          content: e.toString(),
-          createdAt: DateTime.now(),
-        ),
-      ];
+      _messages[projectId] = [];
+      error = e.toString();
     }
 
     loading = false;
@@ -119,6 +102,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> sendMessage(int projectId, String text) async {
+    if (!api.isConfigured) {
+      error = 'Backend غير متصل.';
+      notifyListeners();
+      return;
+    }
+
     final userMessage = ChatMessage(
       id: _newId(),
       projectId: projectId,
@@ -131,29 +120,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (api.isConfigured) {
-        final reply = await api.sendMessage(projectId, text);
-        _messages[projectId]!.add(reply);
-      } else {
-        await Future.delayed(const Duration(milliseconds: 300));
-        _messages[projectId]!.add(
-          ChatMessage(
-            id: _newId(),
-            projectId: projectId,
-            role: 'assistant',
-            content:
-                'تم استلام الأمر في وضع العرض فقط. للبناء الحقيقي اربط Backend آمن مع مفاتيح GitHub وAWS وFirebase.',
-            createdAt: DateTime.now(),
-          ),
-        );
-      }
+      final reply = await api.sendMessage(projectId, text);
+      _messages[projectId]!.add(reply);
     } catch (e) {
       _messages[projectId]!.add(
         ChatMessage(
           id: _newId(),
           projectId: projectId,
           role: 'system',
-          content: e.toString(),
+          content: 'فشل الاتصال بالـ Backend: $e',
           createdAt: DateTime.now(),
         ),
       );
@@ -168,68 +143,29 @@ class AppState extends ChangeNotifier {
     required String scope,
     required String rawValue,
   }) async {
+    if (!api.isConfigured) {
+      error = 'لا يمكن حفظ المفاتيح بدون الاتصال بالـ Backend.';
+      notifyListeners();
+      return;
+    }
+
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      if (api.isConfigured) {
-        await api.createSecret(
-          name: name,
-          type: type,
-          scope: scope,
-          rawValue: rawValue,
-        );
-        secrets = await api.fetchSecrets();
-      } else {
-        secrets.insert(
-          0,
-          SecretMetadata(
-            id: _newId(),
-            name: name,
-            type: type,
-            scope: scope,
-            maskedPreview: '********',
-            createdAt: DateTime.now(),
-          ),
-        );
-      }
+      await api.createSecret(
+        name: name,
+        type: type,
+        scope: scope,
+        rawValue: rawValue,
+      );
+      secrets = await api.fetchSecrets();
     } catch (e) {
       error = e.toString();
     }
 
     loading = false;
     notifyListeners();
-  }
-
-  List<Project> _demoProjects() {
-    return [
-      Project(
-        id: 1,
-        name: 'مشروع تجريبي',
-        createdAt: DateTime.now(),
-      ),
-    ];
-  }
-
-  List<SecretMetadata> _demoSecrets() {
-    return [
-      SecretMetadata(
-        id: 1,
-        name: 'Firebase Sandbox',
-        type: 'firebase_service_account',
-        scope: 'global',
-        maskedPreview: '********',
-        createdAt: DateTime.now(),
-      ),
-      SecretMetadata(
-        id: 2,
-        name: 'AWS Sandbox',
-        type: 'aws_credentials',
-        scope: 'global',
-        maskedPreview: '********',
-        createdAt: DateTime.now(),
-      ),
-    ];
   }
 }
