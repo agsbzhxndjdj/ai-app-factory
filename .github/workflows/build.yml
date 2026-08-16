@@ -44,10 +44,14 @@ jobs:
       - name: Copy app source into scaffold
         run: |
           rm -rf build_src/lib build_src/test
-          cp -r app/lib build_src/lib
-          cp -r app/test build_src/test
+          cp -rf app/lib build_src/lib
+          if [ -d "app/test" ]; then
+            cp -rf app/test build_src/test
+          fi
           cp app/pubspec.yaml build_src/pubspec.yaml
-          cp app/analysis_options.yaml build_src/analysis_options.yaml
+          if [ -f "app/analysis_options.yaml" ]; then
+            cp app/analysis_options.yaml build_src/analysis_options.yaml
+          fi
 
       - name: Install dependencies
         working-directory: build_src
