@@ -114,7 +114,7 @@ class ApiService {
             'value': rawValue,
           }),
         )
-        .timeout(const Duration(seconds: 30));
+        .timeout(const Duration(seconds: 300));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException('HTTP ${response.statusCode}: ${response.body}');
