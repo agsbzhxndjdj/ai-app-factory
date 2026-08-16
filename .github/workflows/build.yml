@@ -16,6 +16,52 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Discover all files
+        run: |
+          echo "========================================="
+          echo "STEP 1: Repository full structure"
+          echo "========================================="
+          find . -type f -not -path './.git/*' -not -path './.github/*' | sort
+          echo ""
+          echo "========================================="
+          echo "STEP 2: All pubspec.yaml files"
+          echo "========================================="
+          find . -name "pubspec.yaml" -not -path './.git/*'
+          echo ""
+          echo "========================================="
+          echo "STEP 3: All .dart files"
+          echo "========================================="
+          find . -name "*.dart" -not -path './.git/*' | sort
+
+      - name: Find Flutter source
+        id: find
+        run: |
+          set -e
+          
+          # Try different possible locations
+          if [ -f "app/lib/main.dart" ] && [ -f "app/pubspec.yaml" ]; then
+            SRC="app"
+            echo "source_path=app" >> $GITHUB_OUTPUT
+            echo "✅ Flutter source found in: app/"
+          elif [ -f "app/app/lib/main.dart" ] && [ -f "app/app/pubspec.yaml" ]; then
+            SRC="app/app"
+            echo "source_path=app/app" >> $GITHUB_OUTPUT
+            echo "✅ Flutter source found in: app/app/"
+          elif [ -f "lib/main.dart" ] && [ -f "pubspec.yaml" ]; then
+            SRC="."
+            echo "source_path=." >> $GITHUB_OUTPUT
+            echo "✅ Flutter source found in: root"
+          else
+            echo "❌ ERROR: Cannot locate Flutter source!"
+            echo "Looked for main.dart and pubspec.yaml in:"
+            echo "  - app/"
+            echo "  - app/app/"
+            echo "  - . (root)"
+            exit 1
+          fi
+          
+          echo "SRC=$SRC" >> $GITHUB_ENV
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -30,32 +76,38 @@ jobs:
       - name: Create Flutter scaffold
         run: flutter create --project-name ai_app_factory --org com.example --platforms android,web build_src
 
-      - name: Copy source files from app folder
+      - name: Copy source files
         run: |
           set -e
-          echo "=== app/ contents ==="
-          ls -la app/
-          if [ ! -f app/pubspec.yaml ]; then echo "ERROR: app/pubspec.yaml missing"; exit 1; fi
-          if [ ! -d app/lib ]; then echo "ERROR: app/lib missing"; exit 1; fi
+          SRC="${{ env.SRC }}"
+          echo "=== Copying from: $SRC ==="
+          
           rm -rf build_src/lib build_src/test
-          cp -rf app/lib build_src/lib
-          cp app/pubspec.yaml build_src/pubspec.yaml
-          if [ -f app/analysis_options.yaml ]; then cp app/analysis_options.yaml build_src/analysis_options.yaml; fi
-          if [ -d app/test ]; then
-            cp -rf app/test build_src/test
-          elif [ -d app/app/test ]; then
-            cp -rf app/app/test build_src/test
+          
+          cp -rf $SRC/lib build_src/lib
+          cp $SRC/pubspec.yaml build_src/pubspec.yaml
+          
+          if [ -f "$SRC/analysis_options.yaml" ]; then
+            cp $SRC/analysis_options.yaml build_src/analysis_options.yaml
           fi
-          echo "=== copied dart files ==="
+          
+          echo "=== Verification: Files copied to build_src/lib ==="
           find build_src/lib -name "*.dart" | sort
+          
+          echo ""
+          echo "=== Checking critical files ==="
+          for f in lib/main.dart lib/core/app_config.dart lib/models/project.dart lib/services/api_service.dart lib/state/app_state.dart; do
+            if [ -f "build_src/$f" ]; then
+              echo "✅ build_src/$f"
+            else
+              echo "❌ MISSING: build_src/$f"
+              exit 1
+            fi
+          done
 
       - name: Install dependencies
         working-directory: build_src
         run: flutter pub get
-
-      - name: Analyze (info only)
-        working-directory: build_src
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
 
       - name: Build Android APK
         working-directory: build_src
@@ -65,13 +117,13 @@ jobs:
         working-directory: build_src
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
           path: build_src/build/app/outputs/flutter-apk/app-debug.apk
 
-      - name: Upload Web artifact
+      - name: Upload Web
         uses: actions/upload-artifact@v4
         with:
           name: web-build
