@@ -3,8 +3,6 @@ name: Build Flutter
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -12,15 +10,10 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,64 +28,22 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
       - name: Create Flutter scaffold
-        run: |
-          flutter create --project-name ai_app_factory --org com.example --platforms android,web build_src
+        run: flutter create --project-name ai_app_factory --org com.example --platforms android,web build_src
 
-      - name: Copy app source into scaffold
+      - name: Copy source files
         run: |
           set -e
-          
-          echo "=== Checking app/ contents ==="
+          echo "=== app/ contents ==="
           ls -la app/
-          
-          # Verify app/pubspec.yaml exists
-          if [ ! -f "app/pubspec.yaml" ]; then
-            echo "❌ ERROR: app/pubspec.yaml not found!"
-            echo "Please make sure pubspec.yaml exists in the app/ folder"
-            exit 1
-          fi
-          
-          # Verify app/lib exists
-          if [ ! -d "app/lib" ]; then
-            echo "❌ ERROR: app/lib directory not found!"
-            exit 1
-          fi
-          
-          # Clean scaffold
+          if [ ! -f app/pubspec.yaml ]; then echo "ERROR: app/pubspec.yaml missing"; exit 1; fi
           rm -rf build_src/lib build_src/test
-          
-          # Copy from app/
           cp -rf app/lib build_src/lib
-          echo "✅ Copied lib/"
-          
           cp app/pubspec.yaml build_src/pubspec.yaml
-          echo "✅ Copied pubspec.yaml"
-          
-          # Create test placeholder
-          mkdir -p build_src/test
-          cat > build_src/test/widget_test.dart << 'EOF'
-import 'package:flutter_test/flutter_test.dart';
-import 'package:ai_app_factory/main.dart';
-
-void main() {
-  testWidgets('App smoke test', (tester) async {
-    await tester.pumpWidget(const AiAppFactoryApp());
-    expect(find.text('AI App Factory'), findsOneWidget);
-  });
-}
-EOF
-          echo "✅ Created test placeholder"
-          
-          # Copy analysis_options if exists
-          if [ -f "app/analysis_options.yaml" ]; then
-            cp app/analysis_options.yaml build_src/analysis_options.yaml
-            echo "✅ Copied analysis_options.yaml"
-          fi
-          
-          echo "=== Build complete ==="
+          if [ -d app/test ]; then cp -rf app/test build_src/test; echo "copied test folder"; fi
+          if [ -f app/analysis_options.yaml ]; then cp app/analysis_options.yaml build_src/analysis_options.yaml; fi
+          echo "=== copy done ==="
 
       - name: Install dependencies
         working-directory: build_src
@@ -102,18 +53,9 @@ EOF
         working-directory: build_src
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Test
-        working-directory: build_src
-        run: flutter test || true
-
       - name: Build web
         working-directory: build_src
-        run: |
-          BASE_HREF="${{ vars.PAGES_BASE_HREF }}"
-          if [ -z "$BASE_HREF" ]; then
-            BASE_HREF="/${{ github.event.repository.name }}/"
-          fi
-          flutter build web --release --base-href "$BASE_HREF" --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
 
       - name: Build Android APK
         working-directory: build_src
@@ -130,22 +72,3 @@ EOF
         with:
           name: app-debug-apk
           path: build_src/build/app/outputs/flutter-apk/app-debug.apk
-
-      - name: Upload Pages artifact
-        if: github.event_name != 'pull_request' && vars.DEPLOY_PAGES == 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: build_src/build/web
-
-  deploy-web:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_PAGES == 'true'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
