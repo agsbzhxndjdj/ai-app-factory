@@ -41,17 +41,62 @@ jobs:
         run: |
           flutter create --project-name ai_app_factory --org com.example --platforms android,web build_src
 
+      - name: Verify app directory structure
+        run: |
+          echo "=== Checking app directory ==="
+          ls -la app/ || true
+          echo "=== Checking for pubspec.yaml ==="
+          ls -la app/pubspec.yaml || echo "❌ pubspec.yaml NOT FOUND"
+          echo "=== Checking lib directory ==="
+          ls -la app/lib/ || echo "❌ lib directory NOT FOUND"
+
       - name: Copy app source into scaffold
         run: |
+          set -e
+          echo "Starting copy process..."
+          
+          # Remove existing scaffold content
           rm -rf build_src/lib build_src/test
-          cp -rf app/lib build_src/lib
+          
+          # Copy lib folder (required)
+          if [ -d "app/lib" ]; then
+            cp -rf app/lib build_src/lib
+            echo "✅ Copied lib folder"
+          else
+            echo "❌ ERROR: app/lib not found!"
+            exit 1
+          fi
+          
+          # Copy pubspec.yaml (required)
+          if [ -f "app/pubspec.yaml" ]; then
+            cp app/pubspec.yaml build_src/pubspec.yaml
+            echo "✅ Copied pubspec.yaml"
+          else
+            echo "❌ ERROR: app/pubspec.yaml not found!"
+            exit 1
+          fi
+          
+          # Copy test folder (optional)
           if [ -d "app/test" ]; then
             cp -rf app/test build_src/test
+            echo "✅ Copied test folder"
+          else
+            echo "⚠️  Warning: app/test not found, skipping"
+            # Create empty test to avoid build errors
+            mkdir -p build_src/test
+            echo "import 'package:flutter_test/flutter_test.dart'; void main() { test('placeholder', () {}); }" > build_src/test/widget_test.dart
           fi
-          cp app/pubspec.yaml build_src/pubspec.yaml
+          
+          # Copy analysis_options (optional)
           if [ -f "app/analysis_options.yaml" ]; then
             cp app/analysis_options.yaml build_src/analysis_options.yaml
+            echo "✅ Copied analysis_options.yaml"
+          else
+            echo "⚠️  Warning: analysis_options.yaml not found"
           fi
+          
+          echo "=== Final build_src structure ==="
+          ls -la build_src/
 
       - name: Install dependencies
         working-directory: build_src
